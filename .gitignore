@@ -1,1 +1,8 @@
 *.pyc
+*.egg-info
+discoverdex*
+models
+*.ini
+*.pth
+*.npy
+*.npz
