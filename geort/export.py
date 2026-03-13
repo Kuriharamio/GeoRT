@@ -56,6 +56,7 @@ def load_model(tag='', epoch=0):
         model_path = checkpoint_root / f"last.pth"
     
     config_path = checkpoint_root / "config.json"
+    print(model_path)
     return GeoRTRetargetingModel(model_path=model_path, config_path=config_path)
 
 if __name__ == '__main__':

@@ -6,13 +6,22 @@
 
 import numpy as np
 import mediapipe as mp
-from mediapipe import solutions
-from mediapipe.framework.formats import landmark_pb2
 from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
-import pyrealsense2 as rs
+
+# MediaPipe 0.10.31+ 移除了 solutions 模块，手部关键点连接关系（用于 OpenCV 绘制）
+HAND_CONNECTIONS = (
+    (0, 1), (1, 2), (2, 3), (3, 4),   # thumb
+    (0, 5), (5, 6), (6, 7), (7, 8),   # index
+    (0, 9), (9, 10), (10, 11), (11, 12),  # middle
+    (0, 13), (13, 14), (14, 15), (15, 16),  # ring
+    (0, 17), (17, 18), (18, 19), (19, 20),  # pinky
+    (5, 9), (9, 13), (13, 17),  # palm
+)
+# import pyrealsense2 as rs
 import cv2
-from geort.mocap.camera.realsense import RealSenseCamera
+# from geort.mocap.camera.realsense import RealSenseCamera
+from geort.mocap.camera.webcam import WebcamCamera
 
 class MediaPipeHandProcessor:
     def __init__(self):
@@ -102,42 +111,55 @@ class MediaPipeHandDetector:
 
         return
 
+    def _draw_hand_landmarks_cv2(self, image, hand_landmarks, height, width):
+        """使用 OpenCV 绘制手部关键点与连线，兼容新版 MediaPipe（无 solutions 模块）。"""
+        # 绘制连线
+        for start_idx, end_idx in HAND_CONNECTIONS:
+            if start_idx < len(hand_landmarks) and end_idx < len(hand_landmarks):
+                start = hand_landmarks[start_idx]
+                end = hand_landmarks[end_idx]
+                pt1 = (int(start.x * width), int(start.y * height))
+                pt2 = (int(end.x * width), int(end.y * height))
+                cv2.line(image, pt1, pt2, (0, 255, 0), 1, cv2.LINE_AA)
+        # 绘制关键点
+        for landmark in hand_landmarks:
+            cx, cy = int(landmark.x * width), int(landmark.y * height)
+            cv2.circle(image, (cx, cy), 2, (0, 205, 88), -1, cv2.LINE_AA)
+
     def draw_landmarks_on_image(self, rgb_image, detection_result):
         hand_landmarks_list = detection_result.hand_landmarks
         handedness_list = detection_result.handedness
         annotated_image = np.copy(rgb_image)
+        height, width, _ = annotated_image.shape
 
-        # Loop through the detected hands to visualize.
         for idx in range(len(hand_landmarks_list)):
             hand_landmarks = hand_landmarks_list[idx]
             handedness = handedness_list[idx]
 
-            # Draw the hand landmarks.
-            hand_landmarks_proto = landmark_pb2.NormalizedLandmarkList()
-            hand_landmarks_proto.landmark.extend([
-            landmark_pb2.NormalizedLandmark(x=landmark.x, y=landmark.y, z=landmark.z) for landmark in hand_landmarks
-            ])
-            solutions.drawing_utils.draw_landmarks(
-            annotated_image,
-            hand_landmarks_proto,
-            solutions.hands.HAND_CONNECTIONS,
-            solutions.drawing_styles.get_default_hand_landmarks_style(),
-            solutions.drawing_styles.get_default_hand_connections_style())
+            self._draw_hand_landmarks_cv2(
+                annotated_image, hand_landmarks, height, width
+            )
 
-            # Get the top left corner of the detected hand's bounding box.
-            height, width, _ = annotated_image.shape
             x_coordinates = [landmark.x for landmark in hand_landmarks]
             y_coordinates = [landmark.y for landmark in hand_landmarks]
             text_x = int(min(x_coordinates) * width)
             text_y = int(min(y_coordinates) * height) - MediaPipeHandDetector.MARGIN
 
-            # Draw handedness (left or right hand) on the image.
-            cv2.putText(annotated_image, f"{handedness[0].category_name}",
-                        (text_x, text_y), cv2.FONT_HERSHEY_DUPLEX,
-                        MediaPipeHandDetector.FONT_SIZE, 
-                        MediaPipeHandDetector.HANDEDNESS_TEXT_COLOR, 
-                        MediaPipeHandDetector.FONT_THICKNESS, 
-                        cv2.LINE_AA)
+            category_name = (
+                handedness[0].category_name
+                if hasattr(handedness[0], "category_name")
+                else str(handedness[0])
+            )
+            cv2.putText(
+                annotated_image,
+                category_name,
+                (text_x, text_y),
+                cv2.FONT_HERSHEY_DUPLEX,
+                MediaPipeHandDetector.FONT_SIZE,
+                MediaPipeHandDetector.HANDEDNESS_TEXT_COLOR,
+                MediaPipeHandDetector.FONT_THICKNESS,
+                cv2.LINE_AA,
+            )
 
         return annotated_image
 
@@ -187,7 +209,7 @@ class MediaPipeHandDetector:
 
 class MediaPipeMocap:
     def __init__(self):
-        self.camera = RealSenseCamera()
+        self.camera = WebcamCamera()
         self.detector = MediaPipeHandDetector()
         self.status = 'idle'
 

@@ -40,19 +40,26 @@ class HandKinematicModel:
             engine = sapien.Engine()
             
             if render:
-                renderer = sapien.VulkanRenderer()  
+                # 新版 SAPIEN 使用 SapienRenderer 替代 VulkanRenderer
+                renderer = sapien.SapienRenderer()
                 engine.set_renderer(renderer)
                 print("Enable Render Mode.")
             else:
                 renderer = None 
             scene_config = sapien.SceneConfig()
-            scene_config.default_dynamic_friction = 1.0
-            scene_config.default_static_friction = 1.0
-            scene_config.default_restitution = 0.00
-            scene_config.contact_offset = 0.02
-            scene_config.enable_pcm = False
-            scene_config.solver_iterations = 25
-            scene_config.solver_velocity_iterations = 1
+            # 仅设置当前 SAPIEN 版本支持的场景配置（兼容 2.x 与 3.x/PhysxSceneConfig）
+            _scene_config_attrs = [
+                ("default_dynamic_friction", 1.0),
+                ("default_static_friction", 1.0),
+                ("default_restitution", 0.0),
+                ("contact_offset", 0.02),
+                ("enable_pcm", False),
+                ("solver_iterations", 25),
+                ("solver_velocity_iterations", 1),
+            ]
+            for name, value in _scene_config_attrs:
+                if hasattr(scene_config, name):
+                    setattr(scene_config, name, value)
             scene = engine.create_scene(scene_config)  
             self.engine = engine 
 
@@ -97,8 +104,11 @@ class HandKinematicModel:
             joint.set_drive_property(kp, kd, force_limit=10)
 
     def __del__(self):
-        del self.engine 
-        del self.scene 
+        # 避免析构时因属性未初始化或已释放导致二次异常
+        if getattr(self, "engine", None) is not None:
+            del self.engine
+        if getattr(self, "scene", None) is not None:
+            del self.scene
 
     def get_n_dof(self):
         '''
